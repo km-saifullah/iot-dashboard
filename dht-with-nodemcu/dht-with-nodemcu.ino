@@ -1,38 +1,63 @@
+#include <ESP8266WiFi.h>
 #include <DHT.h>
-#define DHTPIN D1
-#define DHTTYPE DHT11
-#define ledPin D2
+#include <ESP8266HTTPClient.h>
 
-// Initialize DHT sensor
-DHT dht(DHTPIN, DHTTYPE);
+#define LED_PIN D1
+#define DHT_PIN D0
+#define DHT_TYPE DHT11
+
+const char* ssid = "Flash";
+const char* password = "Billu2244";
+const char* serverUrl = "http://localhost:3000/api";
+
+DHT dht(DHT_PIN, DHT_TYPE);
+WiFiClient wifiClient;
 
 void setup() {
-  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
   dht.begin();
-  pinMode(ledPin, OUTPUT);
+
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected to WiFi");
 }
 
 void loop() {
-  delay(2000);
-
+  // Read DHT11 Sensor
+  float temp = dht.readTemperature();
   float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
 
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("Failed to read from DHT sensor!");
-    return;
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(wifiClient, String(serverUrl) + "/sensor");
+    http.addHeader("Content-Type", "application/json");
+
+    String jsonPayload = String("{\"temperature\":") + temp +
+                         ",\"humidity\":" + humidity + "}";
+    http.POST(jsonPayload);
+    http.end();
   }
 
-  if (temperature >= 34.0) {
-    digitalWrite(ledPin, HIGH);
-  } else {
-    digitalWrite(ledPin, LOW);
+  // Check LED status from the server
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(wifiClient, String(serverUrl) + "/led");
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      if (payload == "ON") {
+        digitalWrite(LED_PIN, HIGH);
+      } else {
+        digitalWrite(LED_PIN, LOW);
+      }
+    }
+    http.end();
   }
 
-  Serial.print("Humidity: ");
-  Serial.print(humidity);
-  Serial.print(" %\t");
-  Serial.print("Temperature: ");
-  Serial.print(temperature);
-  Serial.println(" *C");
+  delay(5000);
 }
